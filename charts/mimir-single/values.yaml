@@ -230,7 +230,7 @@ serviceMesh:
 gateway:
   # Enable Gateway API HTTPRoute (disabled by default)
   # NOTE: Cannot enable both gateway and ingress at the same time
-  enabled: false
+  enabled: true
 
   # Parent Gateway references (required when enabled)
   # At least one parent Gateway reference is required
