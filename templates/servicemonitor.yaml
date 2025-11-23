@@ -1,0 +1,30 @@
+{{- if .Values.metrics.serviceMonitor.enabled -}}
+{{- if not (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") -}}
+{{- fail "ERROR: Prometheus Operator CRDs not found. Please install Prometheus Operator before enabling metrics.serviceMonitor. For installation instructions: https://prometheus-operator.dev/docs/prologue/quick-start/" -}}
+{{- end -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "mimir-single.fullname" . }}
+  labels:
+    {{- include "mimir-single.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "mimir-single.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: web
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+      {{- with .Values.metrics.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.metrics.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

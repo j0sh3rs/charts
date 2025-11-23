@@ -1,0 +1,22 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "mimir-single.fullname" . }}
+  labels:
+    {{- include "mimir-single.labels" . | nindent 4 }}
+rules:
+{{- if .Values.rbac.rules }}
+  {{- toYaml .Values.rbac.rules | nindent 2 }}
+{{- else }}
+  # Minimal example rules - customize based on your requirements
+  # These rules provide read-only access to pods and configmaps
+  # For production, define specific permissions via values.yaml rbac.rules
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+{{- end }}
+{{- end }}

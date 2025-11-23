@@ -12,6 +12,10 @@ image:
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
+  # Optional: Image digest for immutable deployments (takes precedence over tag)
+  # Example: sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+  # When set, the image will be pulled by digest instead of tag for reproducible deployments
+  digest: ""
 
 # This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 imagePullSecrets: []
@@ -24,30 +28,88 @@ serviceAccount:
   # Specifies whether a service account should be created
   create: true
   # Automatically mount a ServiceAccount's API credentials?
-  automount: true
+  # Security Best Practice: Disabled by default following the principle of least privilege
+  # Only enable this if your application needs to interact with the Kubernetes API
+  # Common use cases requiring token mounting:
+  #   - Applications using Kubernetes client libraries (kubectl, kubernetes-client)
+  #   - Service mesh sidecars requiring API access
+  #   - Custom operators or controllers
+  # If your application doesn't need Kubernetes API access, keep this disabled
+  automount: false
   # Annotations to add to the service account
   annotations: {}
   # The name of the service account to use.
   # If not set and create is true, a name is generated using the fullname template
   name: ""
 
+# RBAC configuration for Kubernetes API access (optional, disabled by default)
+# Only enable this if your application requires Kubernetes API permissions
+# For more information: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+rbac:
+  # Specifies whether RBAC resources (Role, RoleBinding) should be created
+  create: false
+  # Define custom RBAC rules for the Role
+  # If empty, minimal example rules are provided in the template
+  # Example configuration for pod access:
+  # rules:
+  #   - apiGroups: [""]
+  #     resources: ["pods"]
+  #     verbs: ["get", "list", "watch"]
+  #   - apiGroups: [""]
+  #     resources: ["configmaps"]
+  #     verbs: ["get"]
+  #
+  # Common scenarios requiring RBAC:
+  #   - Service discovery via Kubernetes API
+  #   - Dynamic configuration from ConfigMaps/Secrets
+  #   - Custom health checks or monitoring integrations
+  #   - Sidecar containers requiring API access
+  rules: []
+
 # This is for setting Kubernetes Annotations to a Pod.
-# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/ 
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
 podAnnotations: {}
 # This is for setting Kubernetes Labels to a Pod.
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
 podLabels: {}
 
-podSecurityContext: {}
-  # fsGroup: 2000
+# Pod Security Context enforces Pod Security Standards "restricted" compliance
+# These settings ensure the pod runs as a non-root user with secure defaults
+# Override these values if your environment has specific security requirements
+podSecurityContext:
+  # Enforces that containers must run as a non-root user
+  runAsNonRoot: true
+  # Non-root user ID for running containers
+  runAsUser: 10001
+  # Non-root group ID for running containers
+  runAsGroup: 10001
+  # Volume ownership will be changed to this group ID
+  fsGroup: 10001
+  # Only change volume ownership if root is the owner (performance optimization)
+  fsGroupChangePolicy: "OnRootMismatch"
+  # Apply secure seccomp profile to restrict syscalls
+  seccompProfile:
+    type: RuntimeDefault
 
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+# Container Security Context enforces Pod Security Standards "restricted" compliance
+# These settings apply at the container level for defense-in-depth
+# Override these values if your environment has specific security requirements
+securityContext:
+  # Prevent privilege escalation exploits
+  allowPrivilegeEscalation: false
+  # Drop all Linux capabilities (principle of least privilege)
+  capabilities:
+    drop:
+      - ALL
+  # Enforce read-only root filesystem (prevents runtime tampering)
+  readOnlyRootFilesystem: true
+  # Redundant non-root enforcement at container level
+  runAsNonRoot: true
+  # Container-level user ID enforcement
+  runAsUser: 10001
+  # Apply secure seccomp profile to restrict syscalls
+  seccompProfile:
+    type: RuntimeDefault
 
 # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
 service:
@@ -73,15 +135,248 @@ ingress:
   #    hosts:
   #      - chart-example.local
 
-resources: 
-  requests:
-    memory: "256Mi"
-    cpu: "100m"
-  limits:
-    memory: "1Gi"
-    cpu: "500m"
+# NetworkPolicy configuration for pod-to-pod traffic control
+# Requires a CNI plugin that supports NetworkPolicy (e.g., Calico, Cilium, Weave Net)
+# For more information: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+networkPolicy:
+  # Enable NetworkPolicy resources (disabled by default)
+  enabled: false
 
-# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+  # Policy types to enforce
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress rules - restrict incoming traffic to Mimir pods
+  ingress:
+    # Allow HTTP API and metrics access from Prometheus
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 8080
+          protocol: TCP
+
+    # Allow gRPC communication from pods in the same namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 9095
+          protocol: TCP
+
+    # Allow memberlist gossip from pods in the same namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 7946
+          protocol: TCP
+
+  # Egress rules - allow required outbound traffic
+  egress:
+    # Allow DNS resolution (kube-dns/CoreDNS)
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+    # Allow memberlist gossip to pods in the same namespace
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 7946
+          protocol: TCP
+
+    # Allow gRPC communication to pods in the same namespace
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 9095
+          protocol: TCP
+
+# Service Mesh compatibility configuration
+# Supports sidecar injection for Istio, Linkerd, and other service mesh solutions
+# For more information:
+#   Istio: https://istio.io/latest/docs/setup/additional-setup/sidecar-injection/
+#   Linkerd: https://linkerd.io/2/features/proxy-injection/
+serviceMesh:
+  # Enable service mesh annotations (disabled by default)
+  enabled: false
+
+  # Annotations to add to pod template for service mesh integration
+  # These annotations will be added to the StatefulSet pod template metadata
+  annotations: {}
+    # Istio sidecar injection examples:
+    # sidecar.istio.io/inject: "true"
+    # traffic.sidecar.istio.io/includeInboundPorts: "8080,9095"
+    # traffic.sidecar.istio.io/excludeOutboundPorts: ""
+    #
+    # Linkerd sidecar injection example:
+    # linkerd.io/inject: enabled
+    #
+    # Custom service mesh annotations can be added as needed
+
+# Gateway API v1 HTTPRoute configuration
+# Modern alternative to Ingress for advanced traffic routing
+# Requires Gateway API CRDs: kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/standard-install.yaml
+# For more information: https://gateway-api.sigs.k8s.io/
+gateway:
+  # Enable Gateway API HTTPRoute (disabled by default)
+  # NOTE: Cannot enable both gateway and ingress at the same time
+  enabled: false
+
+  # Parent Gateway references (required when enabled)
+  # At least one parent Gateway reference is required
+  parentRefs:
+    - name: "" # Name of the parent Gateway resource
+      # namespace: ""  # Optional: Gateway namespace (defaults to same namespace as HTTPRoute)
+      # sectionName: ""  # Optional: Gateway listener name for multi-listener Gateways
+
+  # Hostnames for routing (optional, but recommended)
+  # If not specified, the HTTPRoute will match all hostnames
+  hostnames: []
+    # - mimir.example.com
+    # - metrics.example.com
+
+  # HTTPRoute rules configuration
+  # By default, routes all traffic to the mimir service on port 8080
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: "" # Will default to mimir service name via template
+          port: 8080
+
+# External Secrets Operator integration (optional)
+# Requires External Secrets Operator CRDs: https://external-secrets.io/
+# For more information: https://external-secrets.io/latest/introduction/overview/
+externalSecrets:
+  # Enable External Secrets integration (disabled by default)
+  enabled: false
+
+  # SecretStore or ClusterSecretStore reference
+  secretStore:
+    # Name of the SecretStore or ClusterSecretStore
+    name: ""
+    # Kind of the secret store: SecretStore or ClusterSecretStore
+    kind: SecretStore
+
+  # RefreshInterval for the ExternalSecret
+  # How often the secret should be refreshed from the external secret backend
+  refreshInterval: 1h
+
+  # Data mappings from external secret backend to Kubernetes secret
+  # Each entry defines how to fetch a secret from the backend
+  data: []
+    # Example configuration for pulling secrets from Vault:
+    # - secretKey: admin-password
+    #   remoteRef:
+    #     key: mimir/admin
+    #     property: password
+    # - secretKey: s3-access-key
+    #   remoteRef:
+    #     key: mimir/s3
+    #     property: access_key
+
+  # Target secret configuration
+  target:
+    # Name of the Kubernetes secret to create
+    # If not specified, defaults to the chart fullname with "-external-secrets" suffix
+    name: ""
+    # Creation policy: Owner, Orphan, Merge
+    creationPolicy: Owner
+    # Deletion policy: Retain, Delete
+    deletionPolicy: Retain
+
+# Metrics and monitoring configuration
+metrics:
+  # ServiceMonitor for Prometheus Operator (optional)
+  # Requires Prometheus Operator CRDs: https://prometheus-operator.dev/
+  serviceMonitor:
+    # Enable ServiceMonitor creation (disabled by default)
+    enabled: false
+
+    # Scrape interval for Prometheus
+    interval: 30s
+
+    # Scrape timeout for Prometheus
+    scrapeTimeout: 10s
+
+    # Additional labels for ServiceMonitor (used for Prometheus discovery)
+    labels: {}
+      # prometheus: main
+      # team: platform
+
+    # Relabeling configuration for metrics
+    relabelings: []
+      # - sourceLabels: [__meta_kubernetes_pod_name]
+      #   targetLabel: pod
+
+    # Metric relabeling configuration
+    metricRelabelings: []
+      # - sourceLabels: [__name__]
+      #   regex: 'go_.*'
+      #   action: drop
+
+# Resource requests and limits based on Grafana Mimir production requirements
+# Requests: Guaranteed resources for the container
+# Limits: Maximum resources the container can use
+# Adjust these values based on your workload and cluster capacity
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "200m"
+  limits:
+    memory: "2Gi"
+    cpu: "1000m"
+
+# Health probe configuration
+# For more information: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+probes:
+  # Startup probe checks if the application has started
+  # Uses /ready endpoint which indicates Mimir is ready to accept traffic
+  # Total startup time: failureThreshold * periodSeconds = 30 * 5 = 150 seconds
+  startup:
+    httpGet:
+      path: /ready
+      port: web
+    failureThreshold: 30
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+  # Readiness probe checks if the application is ready to serve traffic
+  # Uses /ready endpoint which indicates Mimir is ready to accept requests
+  readiness:
+    httpGet:
+      path: /ready
+      port: web
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+
+  # Liveness probe checks if the application is still running
+  # Uses / endpoint for basic health check
+  liveness:
+    httpGet:
+      path: /
+      port: web
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+
+# Legacy probe configuration (deprecated, use probes.* instead)
+# Kept for backward compatibility - will be removed in future versions
 livenessProbe:
   httpGet:
     path: /

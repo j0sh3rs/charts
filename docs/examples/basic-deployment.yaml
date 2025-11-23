@@ -1,0 +1,155 @@
+# Basic Deployment Example
+# Minimal configuration for getting started with mimir-single
+
+# This example demonstrates:
+# - Basic pod security (PSS Restricted compliant)
+# - ClusterIP service for internal access
+# - Small resource allocation for development/testing
+# - Persistent storage for data
+
+replicaCount: 1
+
+image:
+  repository: grafana/mimir
+  pullPolicy: IfNotPresent
+  tag: "2.10.0"  # Pin to specific version
+
+# Service Account (automatically created)
+serviceAccount:
+  create: true
+  automount: false  # Security best practice
+
+# Service - Internal cluster access only
+service:
+  type: ClusterIP
+  port: 9009
+
+# Pod Security - Restricted profile compliant
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container Security
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Health Probes
+probes:
+  startup:
+    httpGet:
+      path: /ready
+      port: web
+    failureThreshold: 30
+    periodSeconds: 5
+  readiness:
+    httpGet:
+      path: /ready
+      port: web
+    periodSeconds: 10
+  liveness:
+    httpGet:
+      path: /
+      port: web
+    periodSeconds: 30
+
+# Resources - Development/Testing values
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+# Persistent Storage
+volumeClaimTemplates:
+  - metadata:
+      name: storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
+
+# Node Selection (optional)
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Ingress - Disabled by default
+# Enable and configure for external access
+ingress:
+  enabled: false
+
+# Gateway API - Disabled by default
+gateway:
+  httproute:
+    enabled: false
+
+# NetworkPolicy - Disabled for basic setup
+# Enable in production environments
+networkPolicy:
+  enabled: false
+
+# RBAC - Disabled by default
+rbac:
+  create: false
+
+# Autoscaling - Disabled for basic deployment
+autoscaling:
+  enabled: false
+
+# Service Mesh - Not configured
+serviceMesh:
+  enabled: false
+
+# External Secrets - Not configured
+externalSecrets:
+  enabled: false
+
+# Metrics - Not configured
+metrics:
+  serviceMonitor:
+    enabled: false
+
+---
+# Usage Instructions:
+#
+# 1. Save this file as values.yaml
+#
+# 2. Deploy to Kubernetes:
+#    helm install mimir-single . -f values.yaml
+#
+# 3. Check deployment status:
+#    kubectl get pods
+#    kubectl logs -f mimir-single-0
+#
+# 4. Access from within cluster:
+#    kubectl run -it --rm debug --image=nicolaka/netshoot -- bash
+#    # Inside debug pod:
+#    curl http://mimir-single:9009/ready
+#
+# 5. Port-forward for local access:
+#    kubectl port-forward svc/mimir-single 9009:9009
+#    # Then access: http://localhost:9009
+#
+# Next Steps:
+# - Enable Ingress or Gateway API for external access
+# - Enable NetworkPolicy for production security
+# - Increase resources for production workloads
+# - Configure persistent storage class
+# - Enable ServiceMonitor for Prometheus integration
+#
+# See production-hardened.yaml for full security configuration

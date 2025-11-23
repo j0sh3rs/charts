@@ -60,3 +60,23 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Container security context with secure defaults
+Returns the securityContext configuration for containers
+*/}}
+{{- define "mimir-single.securityContext" -}}
+{{- toYaml .Values.securityContext }}
+{{- end }}
+
+{{/*
+Container image with support for digest-based immutable images
+Digest takes precedence over tag for reproducible deployments
+*/}}
+{{- define "mimir-single.image" -}}
+{{- if .Values.image.digest }}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest }}
+{{- else }}
+{{- printf "%s:%s" .Values.image.repository .Values.image.tag }}
+{{- end }}
+{{- end }}

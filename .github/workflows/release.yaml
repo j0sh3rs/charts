@@ -1,57 +1,192 @@
-name: Building
+name: Release Helm Chart
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
-  workflow_call:
-    outputs:
-      version:
-        description: version created on this build
-        value: ${{ jobs.build.outputs.version }}
-
+    inputs:
+      version_override:
+        description: "Manual version (e.g., 1.2.3)"
+        required: false
+        type: string
 
 jobs:
-  versioning:
-    uses: Ziul/swagger-operator/.github/workflows/version.yaml@main
-    with:
-      runner: ubuntu-latest
-
-  build-helm:
-    name: Helm Build & Publish to GitHub Pages
+  calculate-version:
     runs-on: ubuntu-latest
-    needs: [versioning]
-    if: github.ref_name == 'main' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_bumped: ${{ steps.version.outputs.version_bumped }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for version calculation
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
-
-      - name: Package Helm chart
+      - name: Install yq
         run: |
-          helm package . \
-            --app-version ${{ needs.versioning.outputs.MajorMinorPatch }} \
-            --version ${{ needs.versioning.outputs.MajorMinorPatch }}
-          mkdir -p helm-charts
-          mv ${{ github.event.repository.name }}-*.tgz helm-charts/
+          wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.35.1/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
 
-      - name: Checkout gh-pages branch
+      - name: Calculate Semantic Version
+        id: version
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+
+          # Manual override
+          if [ -n "${{ inputs.version_override }}" ]; then
+            echo "version=${{ inputs.version_override }}" >> $GITHUB_OUTPUT
+            echo "version_bumped=true" >> $GITHUB_OUTPUT
+            echo "Using manual version: ${{ inputs.version_override }}"
+            exit 0
+          fi
+
+          # Read current version from Chart.yaml
+          CURRENT_VERSION=$(yq eval '.version' Chart.yaml)
+          echo "Current version: $CURRENT_VERSION"
+
+          # Parse version components
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+
+          # Get commit messages since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LAST_TAG" ]; then
+            # No tags yet, analyze all commits
+            COMMITS=$(git log --pretty=format:"%s" --no-merges)
+            echo "No previous tags found, analyzing all commits"
+          else
+            # Analyze commits since last tag
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%s" --no-merges)
+            echo "Analyzing commits since $LAST_TAG"
+          fi
+
+          # Count commits to determine if version bump needed
+          COMMIT_COUNT=$(echo "$COMMITS" | grep -c . || echo "0")
+
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "No new commits since last tag"
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "version_bumped=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Found $COMMIT_COUNT commit(s) to analyze"
+
+          # Determine version bump type
+          BUMP_TYPE="patch"  # Default to patch
+
+          # Check for breaking changes (BREAKING CHANGE: or !)
+          if echo "$COMMITS" | grep -qE "(BREAKING CHANGE:|^[a-z]+(\(.+\))?!:)"; then
+            BUMP_TYPE="major"
+            echo "Breaking change detected"
+          # Check for features (feat:)
+          elif echo "$COMMITS" | grep -qE "^feat(\(.+\))?:"; then
+            BUMP_TYPE="minor"
+            echo "Feature detected"
+          # Check for fixes and other types
+          elif echo "$COMMITS" | grep -qE "^(fix|perf|refactor|docs|style|chore|test)(\(.+\))?:"; then
+            BUMP_TYPE="patch"
+            echo "Patch-level change detected"
+          else
+            # Non-conventional commits default to patch
+            BUMP_TYPE="patch"
+            echo "Non-conventional commits, defaulting to patch"
+          fi
+
+          # Apply version bump
+          case "$BUMP_TYPE" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "New version: $NEW_VERSION (bump type: $BUMP_TYPE)"
+
+          # Output for next jobs
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "version_bumped=true" >> $GITHUB_OUTPUT
+
+      - name: Update Chart.yaml
+        if: steps.version.outputs.version_bumped == 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          yq eval -i ".version = \"$VERSION\"" Chart.yaml
+          yq eval -i ".appVersion = \"$VERSION\"" Chart.yaml
+
+          echo "Updated Chart.yaml:"
+          cat Chart.yaml | grep -E "^(version|appVersion):"
+
+      - name: Commit Version Bump
+        if: steps.version.outputs.version_bumped == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add Chart.yaml
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
+
+          git tag "v${{ steps.version.outputs.version }}"
+
+          git push origin main --tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-and-publish:
+    needs: calculate-version
+    if: needs.calculate-version.outputs.version_bumped == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main # Get latest with version bump
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.12.0"
+
+      - name: Package Helm Chart
+        run: |
+          helm package . --destination .deploy
+
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages
 
-      - name: Copy new chart to gh-pages
+      - name: Update Helm Repository
         run: |
-          cp helm-charts/*.tgz gh-pages/
-          cp README.md gh-pages/
-          cd gh-pages
-          helm repo index . --url https://ziul.github.io/${{ github.event.repository.name }}/
+          cp .deploy/*.tgz gh-pages/
+          helm repo index gh-pages --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
 
-      - name: Commit and push changes
-        run: |
           cd gh-pages
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Update Helm chart [skip ci]" || echo "No changes to commit"
-          git push origin gh-pages
+          git commit -m "chore: publish chart version ${{ needs.calculate-version.outputs.version }}"
+          git push
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "v${{ needs.calculate-version.outputs.version }}"
+          name: "Release v${{ needs.calculate-version.outputs.version }}"
+          files: .deploy/*.tgz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

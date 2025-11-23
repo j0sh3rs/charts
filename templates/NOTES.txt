@@ -1,5 +1,28 @@
 1. Get the application URL by running these commands:
 {{- if .Values.ingress.enabled }}
+{{- if (.Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1/HTTPRoute") }}
+
+⚠️  DEPRECATION WARNING ⚠️
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Ingress support is deprecated and will be removed in v2.0.0.
+
+Gateway API is detected in your cluster. Please migrate to HTTPRoute:
+
+Migration Steps:
+  1. Create a Gateway resource (if not already present)
+  2. Update your values.yaml:
+       ingress.enabled: false
+       gateway.enabled: true
+       gateway.parentRefs:
+         - name: your-gateway-name
+           namespace: gateway-namespace  # optional
+  3. Apply the updated chart
+
+Migration guide: https://github.com/grafana/mimir-single-helm/blob/main/docs/migration/ingress-to-httproute.md
+Gateway API docs: https://gateway-api.sigs.k8s.io/
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{- end }}
 {{- range $host := .Values.ingress.hosts }}
   {{- range .paths }}
   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}

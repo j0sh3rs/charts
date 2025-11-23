@@ -1,0 +1,157 @@
+# Gateway API Configuration for Istio
+# This example demonstrates Gateway API configuration with Istio as the Gateway controller
+
+---
+# Gateway Resource - Shared infrastructure component
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: mimir-gateway
+  namespace: istio-system
+spec:
+  gatewayClassName: istio
+  listeners:
+    # HTTPS listener with TLS termination
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.example.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: mimir-tls
+            kind: Secret
+            group: ""
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTP listener for redirect
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: "*.example.com"
+      allowedRoutes:
+        namespaces:
+          from: All
+
+---
+# ReferenceGrant - Allows HTTPRoute to reference Gateway
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-mimir-httproute
+  namespace: istio-system
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: default  # namespace where mimir-single is deployed
+  to:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+
+---
+# Helm values for mimir-single chart
+# Save this section to values-istio.yaml
+gateway:
+  enabled: true
+  parentRefs:
+    - name: mimir-gateway
+      namespace: istio-system
+      sectionName: https
+  hostnames:
+    - mimir.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: mimir-single
+          port: 8080
+
+# Istio service mesh integration (optional)
+serviceMesh:
+  enabled: true
+  annotations:
+    sidecar.istio.io/inject: "true"
+    traffic.sidecar.istio.io/includeInboundPorts: "8080,9095"
+    traffic.sidecar.istio.io/excludeOutboundPorts: ""
+
+# NetworkPolicy for zero-trust (optional)
+networkPolicy:
+  enabled: true
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: istio-system
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+
+---
+# HTTP to HTTPS Redirect HTTPRoute
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mimir-http-redirect
+  namespace: default  # same namespace as mimir-single
+spec:
+  parentRefs:
+    - name: mimir-gateway
+      namespace: istio-system
+      sectionName: http
+  hostnames:
+    - mimir.example.com
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+
+---
+# Installation and Verification Commands
+#
+# 1. Install Istio (if not already installed):
+#    curl -L https://istio.io/downloadIstio | sh -
+#    cd istio-*
+#    export PATH=$PWD/bin:$PATH
+#    istioctl install --set profile=default -y
+#
+# 2. Install Gateway API CRDs:
+#    kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/standard-install.yaml
+#
+# 3. Create TLS certificate secret:
+#    kubectl create secret tls mimir-tls \
+#      --cert=tls.crt \
+#      --key=tls.key \
+#      -n istio-system
+#
+# 4. Apply Gateway and ReferenceGrant:
+#    kubectl apply -f gateway-api-istio.yaml
+#
+# 5. Install mimir-single Helm chart:
+#    helm install mimir-single grafana/mimir-single -f values-istio.yaml
+#
+# 6. Verify Gateway status:
+#    kubectl get gateway mimir-gateway -n istio-system
+#    kubectl wait --for=condition=Programmed gateway/mimir-gateway -n istio-system --timeout=5m
+#
+# 7. Verify HTTPRoute status:
+#    kubectl get httproute mimir-single -n default
+#    kubectl describe httproute mimir-single -n default
+#
+# 8. Test connectivity:
+#    curl -v https://mimir.example.com/
+#    curl -v http://mimir.example.com/  # should redirect to HTTPS
+#
+# Troubleshooting:
+# - Check Istio gateway logs: kubectl logs -n istio-system -l app=istio-gateway
+# - Verify DNS: nslookup mimir.example.com
+# - Check HTTPRoute status: kubectl get httproute mimir-single -o yaml | grep -A 20 status

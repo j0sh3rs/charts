@@ -1,0 +1,367 @@
+# Production Hardened Deployment Example
+# Full security configuration with all features enabled
+
+# This example demonstrates:
+# - Pod Security Standards (PSS) Restricted profile compliance
+# - NetworkPolicy for default-deny network segmentation
+# - Gateway API HTTPRoute for modern HTTP routing
+# - Image digest for immutable deployments
+# - RBAC for least privilege
+# - ServiceMonitor for Prometheus integration
+# - Service Mesh ready configuration
+# - Enhanced health probes
+# - Production-grade resource allocation
+
+replicaCount: 1
+
+# Image Configuration
+image:
+  repository: grafana/mimir
+  pullPolicy: IfNotPresent
+  # Use digest for immutable deployments (takes precedence over tag)
+  digest: ""  # Set to actual SHA256 digest in production
+  tag: "2.10.0"  # Fallback if digest not set
+
+# Image Pull Secrets (for private registries)
+imagePullSecrets: []
+# - name: my-registry-secret
+
+# Service Account
+serviceAccount:
+  create: true
+  automount: false  # Security best practice - enable only if Kubernetes API access needed
+  annotations: {}
+    # For workload identity (GKE):
+    # iam.gke.io/gcp-service-account: mimir@project-id.iam.gserviceaccount.com
+    # For IRSA (EKS):
+    # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/mimir-role
+  name: ""
+
+# RBAC - Enable for Kubernetes API access
+rbac:
+  create: false  # Enable if application needs to access Kubernetes API
+  rules: []
+  # Example rules:
+  # - apiGroups: [""]
+  #   resources: ["pods"]
+  #   verbs: ["get", "list", "watch"]
+
+# Pod Security Context - PSS Restricted Profile
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+  # Optional: supplementary groups
+  # supplementalGroups:
+  #   - 20001
+
+# Container Security Context
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Service Configuration
+service:
+  type: ClusterIP
+  port: 9009
+
+# Gateway API HTTPRoute - Modern routing (recommended)
+gateway:
+  httproute:
+    enabled: true
+    parentRefs:
+      - name: production-gateway  # Your Gateway name
+        namespace: gateway-system  # Gateway namespace
+    hostnames:
+      - mimir.example.com
+    rules:
+      - matches:
+        - path:
+            type: PathPrefix
+            value: /
+        backendRefs:
+        - name: mimir-single
+          port: 9009
+
+# Legacy Ingress - Disabled (using Gateway API instead)
+ingress:
+  enabled: false
+
+# NetworkPolicy - Default deny with explicit allow rules
+networkPolicy:
+  enabled: true
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress Rules - Allow only necessary access
+  ingress:
+    # Allow Grafana access
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/name: grafana
+      ports:
+      - protocol: TCP
+        port: 9009
+
+    # Allow Prometheus metrics scraping
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: monitoring
+        podSelector:
+          matchLabels:
+            app: prometheus
+      ports:
+      - protocol: TCP
+        port: 9009
+
+  # Egress Rules - Allow only necessary external access
+  egress:
+    # Allow DNS
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            name: kube-system
+      - podSelector:
+          matchLabels:
+            k8s-app: kube-dns
+      ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+
+    # Allow object storage (S3/GCS/Azure Blob)
+    - to:
+      - namespaceSelector: {}
+      ports:
+      - protocol: TCP
+        port: 443  # HTTPS
+
+    # Allow Kubernetes API (if RBAC enabled)
+    # - to:
+    #   - namespaceSelector: {}
+    #   - podSelector:
+    #       matchLabels:
+    #         component: apiserver
+    #   ports:
+    #   - protocol: TCP
+    #     port: 443
+
+# Service Mesh Integration (optional)
+serviceMesh:
+  enabled: false  # Enable for mTLS and advanced traffic management
+  type: ""  # "istio" or "linkerd"
+  annotations: {}
+  # For Istio:
+  # type: istio
+  # annotations:
+  #   sidecar.istio.io/inject: "true"
+  #   traffic.sidecar.istio.io/includeInboundPorts: "9009"
+  #   sidecar.istio.io/proxyCPU: "100m"
+  #   sidecar.istio.io/proxyMemory: "128Mi"
+
+  # For Linkerd:
+  # type: linkerd
+  # annotations:
+  #   linkerd.io/inject: enabled
+
+# External Secrets Operator (optional)
+externalSecrets:
+  enabled: false  # Enable for external secret management
+  secretStore:
+    name: ""  # Your SecretStore name
+    kind: SecretStore  # or ClusterSecretStore
+  refreshInterval: 1h
+  data: []
+  # Example for AWS Secrets Manager:
+  # - secretKey: admin-password
+  #   remoteRef:
+  #     key: mimir/admin
+  #     property: password
+  target:
+    name: ""
+    creationPolicy: Owner
+    deletionPolicy: Retain
+
+# Health Probes - Enhanced configuration
+probes:
+  # Startup probe - Protects slow-starting containers
+  startup:
+    httpGet:
+      path: /ready
+      port: web
+    failureThreshold: 30  # 150 seconds total (30 * 5s)
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+  # Readiness probe - Controls traffic routing
+  readiness:
+    httpGet:
+      path: /ready
+      port: web
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+
+  # Liveness probe - Restarts unhealthy containers
+  liveness:
+    httpGet:
+      path: /
+      port: web
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+
+# Metrics and Monitoring
+metrics:
+  serviceMonitor:
+    enabled: true  # Enable for Prometheus Operator
+    interval: 30s
+    scrapeTimeout: 10s
+    labels:
+      prometheus: kube-prometheus  # Match your Prometheus selector
+      release: prometheus
+    relabelings: []
+    # Example: Drop high-cardinality metrics
+    # - sourceLabels: [__name__]
+    #   regex: 'expensive_metric_.*'
+    #   action: drop
+    metricRelabelings: []
+
+# Resources - Production allocation
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+
+# Autoscaling (optional)
+autoscaling:
+  enabled: false  # Enable for dynamic scaling
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Persistent Storage - Production sizing
+volumeClaimTemplates:
+  - metadata:
+      name: storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: fast-ssd  # Use SSD storage class
+      resources:
+        requests:
+          storage: 100Gi
+
+# Node Selection - High-performance nodes
+nodeSelector:
+  node-type: memory-optimized  # Adjust based on your cluster labels
+
+# Tolerations - For dedicated nodes
+tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "mimir"
+    effect: "NoSchedule"
+
+# Affinity - Anti-affinity for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - mimir-single
+          topologyKey: kubernetes.io/hostname
+
+---
+# Deployment Instructions:
+#
+# Prerequisites:
+# 1. Gateway API CRDs installed
+# 2. Gateway Controller deployed (Istio/Contour/NGINX)
+# 3. Gateway resource created
+# 4. Storage class 'fast-ssd' available
+# 5. Prometheus Operator installed (for ServiceMonitor)
+#
+# Deployment Steps:
+#
+# 1. Review and customize this configuration:
+#    - Set image digest for immutable deployment
+#    - Configure Gateway parentRefs and hostnames
+#    - Adjust NetworkPolicy rules for your environment
+#    - Set resource requests/limits based on workload
+#    - Configure node selectors and tolerations
+#
+# 2. Validate configuration:
+#    helm template mimir-single . -f production-hardened.yaml --dry-run --debug
+#
+# 3. Deploy to staging first:
+#    helm install mimir-single . -f production-hardened.yaml -n mimir-staging --create-namespace
+#
+# 4. Verify deployment:
+#    kubectl get pods -n mimir-staging
+#    kubectl logs -f mimir-single-0 -n mimir-staging
+#    kubectl describe pod mimir-single-0 -n mimir-staging
+#
+# 5. Test connectivity:
+#    kubectl run -it --rm debug --image=nicolaka/netshoot -n mimir-staging -- bash
+#    curl http://mimir-single:9009/ready
+#
+# 6. Verify security:
+#    kubectl get networkpolicy -n mimir-staging
+#    kubectl get pod mimir-single-0 -n mimir-staging -o jsonpath='{.spec.securityContext}' | jq
+#
+# 7. Check monitoring:
+#    kubectl get servicemonitor -n mimir-staging
+#    # Verify metrics in Prometheus
+#
+# 8. Deploy to production after validation:
+#    helm install mimir-single . -f production-hardened.yaml -n mimir --create-namespace
+#
+# Security Checklist:
+# - [ ] Image digest configured
+# - [ ] NetworkPolicy tested and validated
+# - [ ] ServiceAccount automount disabled (or justified)
+# - [ ] RBAC configured with least privilege
+# - [ ] Health probes verified
+# - [ ] Resource limits set
+# - [ ] Storage class appropriate for workload
+# - [ ] Gateway/Ingress TLS configured
+# - [ ] Monitoring configured
+# - [ ] Backup strategy in place
+#
+# Maintenance:
+# - Regular security updates (monitor CVEs)
+# - Rotate credentials if using imagePullSecrets
+# - Review and update NetworkPolicy rules
+# - Monitor resource usage and adjust limits
+# - Test disaster recovery procedures
+#
+# See Also:
+# - SECURITY.md: Security features documentation
+# - UPGRADING.md: Migration guide
+# - docs/configuration/: Detailed configuration reference
+# - docs/troubleshooting/: Common issues and solutions

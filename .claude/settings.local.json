@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "SlashCommand(/kiro:spec-tasks k8s-security-modernization)",
+      "SlashCommand(/kiro:spec-tasks:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
