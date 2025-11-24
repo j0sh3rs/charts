@@ -76,34 +76,34 @@ podLabels: {}
 # Pod Security Context enforces Pod Security Standards "restricted" compliance
 # These settings ensure the pod runs as a non-root user with secure defaults
 # Override these values if your environment has specific security requirements
-podSecurityContext:
-  # Enforces that containers must run as a non-root user
-  runAsNonRoot: true
-  # Non-root user ID for running containers
-  runAsUser: 10001
-  # Non-root group ID for running containers
-  runAsGroup: 10001
-  # Volume ownership will be changed to this group ID
-  fsGroup: 10001
-  # Only change volume ownership if root is the owner (performance optimization)
-  fsGroupChangePolicy: "OnRootMismatch"
+# podSecurityContext:
+#   # Enforces that containers must run as a non-root user
+#   runAsNonRoot: true
+#   # Non-root user ID for running containers
+#   runAsUser: 10001
+#   # Non-root group ID for running containers
+#   runAsGroup: 10001
+#   # Volume ownership will be changed to this group ID
+#   fsGroup: 10001
+#   # Only change volume ownership if root is the owner (performance optimization)
+#   fsGroupChangePolicy: "OnRootMismatch"
 
 # Container Security Context enforces Pod Security Standards "restricted" compliance
 # These settings apply at the container level for defense-in-depth
 # Override these values if your environment has specific security requirements
-securityContext:
-  # Prevent privilege escalation exploits
-  allowPrivilegeEscalation: false
-  # Drop all Linux capabilities (principle of least privilege)
-  capabilities:
-    drop:
-      - ALL
-  # Enforce read-only root filesystem (prevents runtime tampering)
-  readOnlyRootFilesystem: false
-  # Redundant non-root enforcement at container level
-  runAsNonRoot: true
-  # Container-level user ID enforcement
-  runAsUser: 10001
+# securityContext:
+#   # Prevent privilege escalation exploits
+#   allowPrivilegeEscalation: false
+#   # Drop all Linux capabilities (principle of least privilege)
+#   capabilities:
+#     drop:
+#       - ALL
+#   # Enforce read-only root filesystem (prevents runtime tampering)
+#   readOnlyRootFilesystem: false
+#   # Redundant non-root enforcement at container level
+#   runAsNonRoot: true
+#   # Container-level user ID enforcement
+#   runAsUser: 10001
 
 # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
 service:
@@ -129,71 +129,71 @@ ingress:
   #    hosts:
   #      - chart-example.local
 
-# NetworkPolicy configuration for pod-to-pod traffic control
-# Requires a CNI plugin that supports NetworkPolicy (e.g., Calico, Cilium, Weave Net)
-# For more information: https://kubernetes.io/docs/concepts/services-networking/network-policies/
-networkPolicy:
-  # Enable NetworkPolicy resources (disabled by default)
-  enabled: false
+  # NetworkPolicy configuration for pod-to-pod traffic control
+  # Requires a CNI plugin that supports NetworkPolicy (e.g., Calico, Cilium, Weave Net)
+  # For more information: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+  # networkPolicy:
+  #   # Enable NetworkPolicy resources (disabled by default)
+  #   enabled: false
 
-  # Policy types to enforce
-  policyTypes:
-    - Ingress
-    - Egress
+  #   # Policy types to enforce
+  #   policyTypes:
+  #     - Ingress
+  #     - Egress
 
-  # Ingress rules - restrict incoming traffic to Mimir pods
-  ingress:
-    # Allow HTTP API and metrics access from Prometheus
-    - from:
-        - namespaceSelector: {}
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: prometheus
-      ports:
-        - port: 8080
-          protocol: TCP
+  #   # Ingress rules - restrict incoming traffic to Mimir pods
+  #   ingress:
+  #     # Allow HTTP API and metrics access from Prometheus
+  #     - from:
+  #         - namespaceSelector: {}
+  #           podSelector:
+  #             matchLabels:
+  #               app.kubernetes.io/name: prometheus
+  #       ports:
+  #         - port: 8080
+  #           protocol: TCP
 
-    # Allow gRPC communication from pods in the same namespace
-    - from:
-        - podSelector: {}
-      ports:
-        - port: 9095
-          protocol: TCP
+  #     # Allow gRPC communication from pods in the same namespace
+  #     - from:
+  #         - podSelector: {}
+  #       ports:
+  #         - port: 9095
+  #           protocol: TCP
 
-    # Allow memberlist gossip from pods in the same namespace
-    - from:
-        - podSelector: {}
-      ports:
-        - port: 7946
-          protocol: TCP
+  #     # Allow memberlist gossip from pods in the same namespace
+  #     - from:
+  #         - podSelector: {}
+  #       ports:
+  #         - port: 7946
+  #           protocol: TCP
 
   # Egress rules - allow required outbound traffic
-  egress:
-    # Allow DNS resolution (kube-dns/CoreDNS)
-    - to:
-        - namespaceSelector: {}
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
+  # egress:
+  #   # Allow DNS resolution (kube-dns/CoreDNS)
+  #   - to:
+  #       - namespaceSelector: {}
+  #         podSelector:
+  #           matchLabels:
+  #             k8s-app: kube-dns
+  #     ports:
+  #       - port: 53
+  #         protocol: UDP
+  #       - port: 53
+  #         protocol: TCP
 
-    # Allow memberlist gossip to pods in the same namespace
-    - to:
-        - podSelector: {}
-      ports:
-        - port: 7946
-          protocol: TCP
+  #   # Allow memberlist gossip to pods in the same namespace
+  #   - to:
+  #       - podSelector: {}
+  #     ports:
+  #       - port: 7946
+  #         protocol: TCP
 
-    # Allow gRPC communication to pods in the same namespace
-    - to:
-        - podSelector: {}
-      ports:
-        - port: 9095
-          protocol: TCP
+  #   # Allow gRPC communication to pods in the same namespace
+  #   - to:
+  #       - podSelector: {}
+  #     ports:
+  #       - port: 9095
+  #         protocol: TCP
 
 # Service Mesh compatibility configuration
 # Supports sidecar injection for Istio, Linkerd, and other service mesh solutions
