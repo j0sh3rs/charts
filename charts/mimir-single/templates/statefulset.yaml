@@ -44,6 +44,8 @@ spec:
           command:
             - mimir
             - -config.file=/etc/mimir.yaml
+            - -auth.multitenancy-enabled=false
+            - -auth.no-auth-tenant=anonymous
           ports:
             - name: web
               containerPort: {{ .Values.service.port }}
