@@ -29,7 +29,3 @@ jobs:
           oci_username: j0sh3rs
           oci_password: ${{ secrets.GITHUB_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish Package
-        run: |
-          ${install_dir}/package/${chart}/${name}-${version}.tgz
