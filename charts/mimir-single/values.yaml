@@ -87,9 +87,6 @@ podSecurityContext:
   fsGroup: 10001
   # Only change volume ownership if root is the owner (performance optimization)
   fsGroupChangePolicy: "OnRootMismatch"
-  # Apply secure seccomp profile to restrict syscalls
-  seccompProfile:
-    type: RuntimeDefault
 
 # Container Security Context enforces Pod Security Standards "restricted" compliance
 # These settings apply at the container level for defense-in-depth
@@ -107,9 +104,6 @@ securityContext:
   runAsNonRoot: true
   # Container-level user ID enforcement
   runAsUser: 10001
-  # Apply secure seccomp profile to restrict syscalls
-  seccompProfile:
-    type: RuntimeDefault
 
 # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
 service:
