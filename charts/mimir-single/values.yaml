@@ -76,7 +76,7 @@ podLabels: {}
 # Pod Security Context enforces Pod Security Standards "restricted" compliance
 # These settings ensure the pod runs as a non-root user with secure defaults
 # Override these values if your environment has specific security requirements
-# podSecurityContext:
+podSecurityContext: {}
 #   # Enforces that containers must run as a non-root user
 #   runAsNonRoot: true
 #   # Non-root user ID for running containers
@@ -91,7 +91,7 @@ podLabels: {}
 # Container Security Context enforces Pod Security Standards "restricted" compliance
 # These settings apply at the container level for defense-in-depth
 # Override these values if your environment has specific security requirements
-# securityContext:
+securityContext: {}
 #   # Prevent privilege escalation exploits
 #   allowPrivilegeEscalation: false
 #   # Drop all Linux capabilities (principle of least privilege)
