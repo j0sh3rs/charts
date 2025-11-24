@@ -11,7 +11,7 @@ image:
   # This sets the pull policy for images.
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "2.17.2"
   # Optional: Image digest for immutable deployments (takes precedence over tag)
   # Example: sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
   # When set, the image will be pulled by digest instead of tag for reproducible deployments
