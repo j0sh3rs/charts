@@ -35,7 +35,7 @@ serviceAccount:
   #   - Service mesh sidecars requiring API access
   #   - Custom operators or controllers
   # If your application doesn't need Kubernetes API access, keep this disabled
-  automount: false
+  automount: true
   # Annotations to add to the service account
   annotations: {}
   # The name of the service account to use.
@@ -47,24 +47,20 @@ serviceAccount:
 # For more information: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
 rbac:
   # Specifies whether RBAC resources (Role, RoleBinding) should be created
-  create: false
+  create: true
   # Define custom RBAC rules for the Role
   # If empty, minimal example rules are provided in the template
   # Example configuration for pod access:
-  # rules:
-  #   - apiGroups: [""]
-  #     resources: ["pods"]
-  #     verbs: ["get", "list", "watch"]
-  #   - apiGroups: [""]
-  #     resources: ["configmaps"]
-  #     verbs: ["get"]
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "configmaps", "secrets", "services"]
+      verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   #
   # Common scenarios requiring RBAC:
   #   - Service discovery via Kubernetes API
   #   - Dynamic configuration from ConfigMaps/Secrets
   #   - Custom health checks or monitoring integrations
   #   - Sidecar containers requiring API access
-  rules: []
 
 # This is for setting Kubernetes Annotations to a Pod.
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/

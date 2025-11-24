@@ -2,5 +2,5 @@ apiVersion: v2
 name: mimir-single
 description: A Helm chart for Grafana Mimir Singleton deployments for homelabbers
 type: application
-version: 0.3.5
+version: 0.3.6
 appVersion: "2.17.2"
