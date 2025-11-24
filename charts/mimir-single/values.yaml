@@ -102,7 +102,7 @@ securityContext:
     drop:
       - ALL
   # Enforce read-only root filesystem (prevents runtime tampering)
-  readOnlyRootFilesystem: true
+  readOnlyRootFilesystem: false
   # Redundant non-root enforcement at container level
   runAsNonRoot: true
   # Container-level user ID enforcement
