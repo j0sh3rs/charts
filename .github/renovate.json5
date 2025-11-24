@@ -1,38 +1,324 @@
 {
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+
+  // Base configuration presets
   extends: [
-    'config:recommended',
-    'docker:enableMajor',
-    'helpers:pinGitHubActionDigests',
-    ':automergeBranch',
-    ':disableRateLimiting',
-    ':dependencyDashboard',
-    ':semanticCommits',
-    ':timezone(America/New_York)',
+    'config:recommended',                    // Renovate's recommended base config
+    ':disableRateLimiting',                 // No rate limiting for faster updates
+    ':dependencyDashboard',                 // Enable dependency dashboard issue
+    ':semanticCommits',                     // Use semantic commit messages
+    ':enablePreCommit',                     // Enable pre-commit hooks if configured
+    ':timezone(America/New_York)',          // Set timezone for scheduling
+    'docker:enableMajor',                   // Enable major Docker image updates
+    'helpers:pinGitHubActionDigests',       // Pin GitHub Actions to commit SHAs
+    ':automergeBranch',                     // Auto-merge without creating PRs for branches
   ],
+
+  // Dashboard and notifications
   dependencyDashboardTitle: 'Renovate Dashboard 🤖',
-  suppressNotifications: [
-    'prEditedNotification',
-    'prIgnoreNotification',
-  ],
+  dependencyDashboardHeader: 'This issue lists all pending Renovate updates for Helm charts and GitHub Actions.',
+  dependencyDashboardLabels: ['renovate', 'dependencies'],
+  suppressNotifications: ['prEditedNotification', 'prIgnoreNotification'],
+
+  // Ignore encrypted files and resources
   ignorePaths: [
-    '**/*.sops.*',
-    '**/resources/**',
-    '**/archive/**',
+    '**/*.sops.*',              // SOPS encrypted files
+    '**/*.sops.yaml',
+    '**/*.sops.yml',
+    '**/resources/**',          // Static resources
+    '**/archive/**',            // Archived files
+    '**/node_modules/**',       // Dependencies
+    '**/.kiro/**',              // Kiro specification files
   ],
-  flux: {
-    managerFilePatterns: [
-      '/(^|/)kubernetes/.+\\.ya?ml$/',
-    ],
+
+  // Ignore deprecated or test charts
+  ignoreDeps: [],
+
+  // Commit message configuration
+  commitMessageTopic: '{{depName}}',
+  commitMessageExtra: 'to {{newVersion}}',
+  commitMessageSuffix: '',
+
+  // PR configuration
+  prConcurrentLimit: 10,                    // Max concurrent PRs
+  prCreation: 'immediate',                  // Create PRs immediately
+  prHourlyLimit: 0,                         // No hourly limit
+
+  // Branching strategy
+  branchPrefix: 'renovate/',
+  branchConcurrentLimit: 20,
+
+  // Schedule - run daily at 2 AM EST
+  schedule: ['after 2am and before 4am every weekday'],
+
+  // Semantic commit configuration
+  semanticCommits: 'enabled',
+
+  // Package rules for different dependency types
+  packageRules: [
+    // ========================================
+    // GitHub Actions
+    // ========================================
+    {
+      description: 'GitHub Actions - automerge minor/patch',
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['minor', 'patch'],
+      automerge: true,
+      automergeType: 'pr',
+      labels: ['renovate', 'github-actions', 'automerge'],
+      semanticCommitType: 'ci',
+      semanticCommitScope: 'actions',
+      schedule: ['at any time'],
+    },
+    {
+      description: 'GitHub Actions - major updates require approval',
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['major'],
+      automerge: false,
+      labels: ['renovate', 'github-actions', 'major'],
+      semanticCommitType: 'ci',
+      semanticCommitScope: 'actions',
+    },
+
+    // ========================================
+    // GitHub Actions Grouping
+    // ========================================
+    {
+      description: 'Group GitHub Actions minor/patch updates',
+      groupName: 'GitHub Actions',
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['minor', 'patch'],
+      semanticCommitType: 'ci',
+      semanticCommitScope: 'actions',
+    },
+
+    // ========================================
+    // Helm Charts (Chart.yaml dependencies)
+    // ========================================
+    {
+      description: 'Helm chart dependencies - patch automerge',
+      matchManagers: ['helm-requirements', 'helmv3'],
+      matchUpdateTypes: ['patch'],
+      automerge: true,
+      automergeType: 'pr',
+      labels: ['renovate', 'helm', 'patch', 'automerge'],
+      semanticCommitType: 'fix',
+      semanticCommitScope: 'chart',
+    },
+    {
+      description: 'Helm chart dependencies - minor requires approval',
+      matchManagers: ['helm-requirements', 'helmv3'],
+      matchUpdateTypes: ['minor'],
+      automerge: false,
+      labels: ['renovate', 'helm', 'minor'],
+      semanticCommitType: 'feat',
+      semanticCommitScope: 'chart',
+    },
+    {
+      description: 'Helm chart dependencies - major requires approval',
+      matchManagers: ['helm-requirements', 'helmv3'],
+      matchUpdateTypes: ['major'],
+      automerge: false,
+      labels: ['renovate', 'helm', 'major'],
+      semanticCommitType: 'feat',
+      semanticCommitScope: 'chart',
+      prPriority: 10,
+    },
+
+    // ========================================
+    // Container Images (values.yaml)
+    // ========================================
+    {
+      description: 'Container images - patch automerge',
+      matchDatasources: ['docker'],
+      matchUpdateTypes: ['patch'],
+      automerge: true,
+      automergeType: 'pr',
+      labels: ['renovate', 'container', 'patch', 'automerge'],
+      semanticCommitType: 'fix',
+      semanticCommitScope: 'container',
+    },
+    {
+      description: 'Container images - minor requires approval',
+      matchDatasources: ['docker'],
+      matchUpdateTypes: ['minor'],
+      automerge: false,
+      labels: ['renovate', 'container', 'minor'],
+      semanticCommitType: 'feat',
+      semanticCommitScope: 'container',
+    },
+    {
+      description: 'Container images - major requires approval',
+      matchDatasources: ['docker'],
+      matchUpdateTypes: ['major'],
+      automerge: false,
+      labels: ['renovate', 'container', 'major'],
+      semanticCommitType: 'feat',
+      semanticCommitScope: 'container',
+      prPriority: 10,
+    },
+
+    // ========================================
+    // Specific Image Patterns
+    // ========================================
+    {
+      description: 'Grafana Mimir - all updates require approval',
+      matchDatasources: ['docker'],
+      matchPackagePatterns: ['^grafana/mimir'],
+      automerge: false,
+      labels: ['renovate', 'mimir', 'requires-testing'],
+      semanticCommitType: 'feat',
+      semanticCommitScope: 'mimir',
+      prPriority: 15,
+    },
+
+    // ========================================
+    // Chart Testing Ecosystem Grouping
+    // ========================================
+    {
+      description: 'Group Helm chart-testing ecosystem updates',
+      groupName: 'Helm chart-testing ecosystem',
+      matchPackagePatterns: [
+        '^helm/chart-testing',
+        '^helm/kind-action',
+        '^helm/chart-releaser',
+      ],
+      semanticCommitType: 'ci',
+      semanticCommitScope: 'chart-testing',
+    },
+
+    // ========================================
+    // Security Tools Grouping
+    // ========================================
+    {
+      description: 'Group security scanning tools',
+      groupName: 'Security scanning tools',
+      matchPackagePatterns: ['^bridgecrewio/checkov', '^aquasecurity/'],
+      semanticCommitType: 'ci',
+      semanticCommitScope: 'security',
+    },
+
+    // ========================================
+    // Vulnerability Alerts
+    // ========================================
+    {
+      description: 'Vulnerability alerts - high priority',
+      matchDatasources: ['docker', 'helm', 'github-releases'],
+      vulnerabilityAlerts: {
+        enabled: true,
+        labels: ['security', 'vulnerability'],
+        automerge: false,
+        schedule: ['at any time'],
+      },
+      prPriority: 20,
+      semanticCommitType: 'fix',
+      semanticCommitScope: 'security',
+    },
+  ],
+
+  // ========================================
+  // Major Update Configuration
+  // ========================================
+  major: {
+    dependencyDashboardApproval: true,  // Require dashboard approval for major updates
   },
-  'helm-values': {
-    managerFilePatterns: [
-      '/(^|/)kubernetes/.+\\.ya?ml$/',
-    ],
+
+  // ========================================
+  // Custom Managers for Regex Patterns
+  // ========================================
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Process GitHub Actions versions in workflows',
+      fileMatch: ['^\\.github/workflows/[^/]+\\.ya?ml$'],
+      matchStrings: [
+        // Match: uses: owner/repo@v1.2.3 or uses: owner/repo@1.2.3
+        'uses:\\s+(?<depName>[^@\\s]+)@(?<currentValue>v?\\d+\\.\\d+\\.\\d+)',
+      ],
+      datasourceTemplate: 'github-tags',
+      versioningTemplate: 'semver',
+    },
+    {
+      customType: 'regex',
+      description: 'Process tool versions with explicit version fields in YAML',
+      fileMatch: ['^\\.github/workflows/[^/]+\\.ya?ml$'],
+      matchStrings: [
+        // Match: version: "1.2.3" or version: 1.2.3 with context
+        '(?<depName>[a-z-]+):\\s*#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+version:\\s*["\']?(?<currentValue>\\d+\\.\\d+\\.\\d+)["\']?',
+      ],
+    },
+    {
+      customType: 'regex',
+      description: 'Process tool versions in shell scripts',
+      fileMatch: ['(^|/)scripts/.+\\.sh$'],
+      matchStrings: [
+        // Match: VERSION="1.2.3" or version="1.2.3" with package name
+        '(?<depName>[A-Z_]+)_VERSION\\s*=\\s*["\'](?<currentValue>\\d+\\.\\d+\\.\\d+)["\']',
+      ],
+      datasourceTemplate: 'github-releases',
+      versioningTemplate: 'semver',
+    },
+  ],
+
+  // ========================================
+  // Stability and Testing
+  // ========================================
+
+  // Minimum release age
+  minimumReleaseAge: '3 days',
+
+  // Respect unstable versions
+  respectLatest: true,
+
+  // Ignore unstable versions
+  ignoreUnstable: true,
+
+  // ========================================
+  // Vulnerability Alerts Configuration
+  // ========================================
+  vulnerabilityAlerts: {
+    enabled: true,
+    labels: ['security', 'vulnerability'],
+    automerge: false,
+    schedule: ['at any time'],
+    semanticCommitType: 'fix',
+    semanticCommitScope: 'security',
   },
-  kubernetes: {
-    managerFilePatterns: [
-      '/(^|/)kubernetes/.+\\.ya?ml$/',
+
+  // ========================================
+  // Post-Upgrade Tasks
+  // ========================================
+  postUpgradeTasks: {
+    commands: [
+      // Update Helm chart documentation
+      'helm-docs --chart-search-root=charts',
+      // Validate Chart.yaml
+      'helm lint charts/*',
     ],
+    fileFilters: [
+      'charts/**/README.md',
+      'charts/**/Chart.yaml',
+    ],
+    executionMode: 'branch',
   },
+
+  // ========================================
+  // Custom Labels
+  // ========================================
+  labels: ['renovate', 'dependencies'],
+  addLabels: [],
+
+  // ========================================
+  // Versioning Strategy
+  // ========================================
+
+  // Pin dependencies for reproducibility
+  rangeStrategy: 'pin',
+
+  // Separate major/minor/patch PRs
+  separateMajorMinor: true,
+  separateMinorPatch: false,
+
+  // Rebase behavior
+  rebaseWhen: 'conflicted',
 }
